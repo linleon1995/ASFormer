@@ -24,7 +24,7 @@ import mlflow.pytorch
 # from model import Trainer
 from batch_gen import BatchGenerator, VAS_Dataset, read_data, get_vas_dataloader, get_train_dataloader
 from model import MyTransformer
-from pl_model import PlModel
+from pl_model import PL_ASFormer
 
 
 
@@ -38,10 +38,10 @@ def main():
     torch.backends.cudnn.deterministic = True
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--action', default='predict')
+    parser.add_argument('--action', default='pred')
     parser.add_argument('--dataset', default="coffee_room")
     parser.add_argument('--split', default='4')
-    parser.add_argument('--checkpoint', default=None)
+    parser.add_argument('--checkpoint', default='my/path/epoch=62-val_loss=1.05.ckpt')
 
     parser.add_argument('--features_dim', default='2048', type=int)
     parser.add_argument('--bz', default=1, type=int)
@@ -147,24 +147,32 @@ def main():
 
 
     # XXX: model generating factory
-    optimizer = optim.Adam
-    lr_scheduler = optim.lr_scheduler.StepLR
+    optimizer_config = {
+        'name': 'Adam'
+    }
     lr_scheduler_config = {
+        'name': 'StepLR',
+        'lr': lr,
         'gamma': 0.8,
         'step_size': 10
     }
 
-    model = PlModel(
+    from utils.train_utils import ASFormerLoss
+    loss_config = {
+        'name': ASFormerLoss.__name__,
+        'custom_loss': ASFormerLoss,
+        'num_class': num_classes
+    }
+
+    model = PL_ASFormer(
         model=model,
-        optimizer=optimizer,
-        lr=lr,
-        lr_scheduler=lr_scheduler,
+        optimizer_config=optimizer_config,
         lr_scheduler_config=lr_scheduler_config,
-        loss_func=nn.CrossEntropyLoss(ignore_index=-100),
-        num_classes=num_classes,
+        loss_config=loss_config,
+        # num_class=num_classes,
         action_dict=actions_dict,
         sample_rate=sample_rate,
-        results_dir=results_dir,
+        results_dir=''
     )
     
     # training
@@ -220,7 +228,7 @@ def main():
             files, num_classes, actions_dict, gt_path, features_path, 
             sample_rate, 1, num_workers
         )
-        model = PlModel.load_from_checkpoint(args.checkpoint)
+        model = PL_ASFormer.load_from_checkpoint(args.checkpoint)
         model.eval()
         trainer.predict(
             model=model,
