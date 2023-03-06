@@ -30,7 +30,7 @@ from pl_model import PL_ASFormer
 
 # TODO: Docstring for this repo.
 def main():
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    # device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     seed = 1538574472
     random.seed(seed)
     torch.manual_seed(seed)
@@ -38,10 +38,10 @@ def main():
     torch.backends.cudnn.deterministic = True
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--action', default='pred')
+    parser.add_argument('--action', default='train')
     parser.add_argument('--dataset', default="coffee_room")
     parser.add_argument('--split', default='4')
-    parser.add_argument('--checkpoint', default='my/path/epoch=62-val_loss=1.05.ckpt')
+    parser.add_argument('--checkpoint', default=None)
 
     parser.add_argument('--features_dim', default='2048', type=int)
     parser.add_argument('--bz', default=1, type=int)
@@ -52,7 +52,7 @@ def main():
     parser.add_argument('--num_f_maps', default='64', type=int)
 
     # Need input
-    parser.add_argument('--num_epochs', type=int, default=150)
+    parser.add_argument('--num_epochs', type=int, default=2)
     # parser.add_argument('--num_layers_PG', type=int, default=11)
     # parser.add_argument('--num_layers_R', type=int, default=10)
     # parser.add_argument('--num_R', type=int, default=4)
@@ -143,10 +143,7 @@ def main():
     model = MyTransformer(
         3, num_layers, r1, r2, num_f_maps, features_dim, num_classes, channel_mask_rate
     )
-    # from ..UVAST import model as uvast_model
-
-
-    # XXX: model generating factory
+   
     optimizer_config = {
         'name': 'Adam'
     }
@@ -172,7 +169,7 @@ def main():
         # num_class=num_classes,
         action_dict=actions_dict,
         sample_rate=sample_rate,
-        results_dir=''
+        results_dir='result'
     )
     
     # training
@@ -182,10 +179,12 @@ def main():
     # TODO: restore
     # TODO: predict
     
-    mlf_logger = MLFlowLogger(experiment_name="lightning_logs", tracking_uri="file:./ml-runs")
-    mlflow.pytorch.autolog()
+    mlf_logger = MLFlowLogger(
+        experiment_name="lightning_logs", 
+        tracking_uri="file:./mlruns",
+        log_model=True,
+    )
     
-
     if args.action == 'train':
         trainer = pl.Trainer(
             accelerator='gpu', 
@@ -205,6 +204,8 @@ def main():
             max_epochs=num_epochs,
             logger=mlf_logger,
         )
+
+        mlflow.pytorch.autolog()
 
         trainer.fit(
             model=model, 
@@ -228,12 +229,16 @@ def main():
             files, num_classes, actions_dict, gt_path, features_path, 
             sample_rate, 1, num_workers
         )
-        model = PL_ASFormer.load_from_checkpoint(args.checkpoint)
+        model = PL_ASFormer.load_from_checkpoint(
+            args.checkpoint,
+
+        )
         model.eval()
-        trainer.predict(
+        pred_and_vids = trainer.predict(
             model=model,
             dataloaders=test_loader
         )
+        # post_process(pred_and_vids, results_dir, actions_dict, sample_rate)
     
 
     

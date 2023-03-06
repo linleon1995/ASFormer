@@ -7,6 +7,8 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 
+from eval import segment_bars_with_confidence
+
 
 def find_class_in_module(module, cls_name):
     clsmembers = inspect.getmembers(module, inspect.isclass)
@@ -48,6 +50,13 @@ class BasePLModel(pl.LightningModule):
                  lr_scheduler_config: Dict, loss_config: Dict):
         super().__init__()
         self.model = model  # Pytorch model
+        optimizer_config['name'] = 'Adam'
+        lr_scheduler_config['name'] = 'StepLR'
+        lr_scheduler_config['lr'] = 1e-3
+        loss_config['name'] = 'ASFormerLoss'
+        from utils.train_utils import ASFormerLoss
+        loss_config['custom_loss'] = ASFormerLoss
+
         self.optimizer_name = optimizer_config.pop('name')
         self.optimizer_config = optimizer_config
         self.optimizer_cls = find_torch_optimizer(self.optimizer_name)
@@ -64,6 +73,9 @@ class BasePLModel(pl.LightningModule):
             self.loss_func_cls = self.loss_config.pop('custom_loss')
         self.loss_func = self.loss_func_cls(**self.loss_config)
 
+        # self.optimizer_config['name'] = self.optimizer_name
+        # self.lr_scheduler_config['name'] = self.lr_scheduler_name
+        # self.loss_config['name'] = self.loss_name
         self.save_hyperparameters()
 
     def configure_optimizers(self):
@@ -107,6 +119,7 @@ class PL_ASFormer(BasePLModel):
             idx: action for action, idx in self.action_to_id.items()}
 
         self.sample_rate = sample_rate
+        self.results_dir = 'results'
         self.save_hyperparameters()
 
     def training_step(self, train_batch, batch_idx):
@@ -149,85 +162,50 @@ class PL_ASFormer(BasePLModel):
 
         self.log('val_loss', loss)
 
-#     def predict_step(self, batch, batch_idx, dataloader_idx=0):
-#         self.model.to(device)
-#         self.model.load_state_dict(torch.load(
-#             model_dir + "/epoch-" + str(epoch) + ".model"))
+    def predict_step(self, batch, batch_idx, dataloader_idx=0):
+        # self.model.load_state_dict(torch.load(
+        #     model_dir + "/epoch-" + str(epoch) + ".model"))
 
-#         batch_input, batch_target, mask, vids = batch
-#         vid = vids[0]
-# #                 print(vid)
-#         features = np.load(features_path + vid.split('.')[0] + '.npy')
-#         features = features[:, ::sample_rate]
+        batch_input, batch_target, _, vids = batch
+        vid = vids[0]
+        vid = vid[:-4]
+#                 print(vid)
+        # features = np.load(features_path + vid.split('.')[0] + '.npy')
+        # features = features[:, ::sample_rate]
 
-#         input_x = torch.tensor(features, dtype=torch.float)
-#         input_x.unsqueeze_(0)
-#         input_x = input_x.to(device)
-#         predictions = self.model(
-#             input_x, torch.ones(input_x.size(), device=device))
+        # input_x = torch.tensor(batch_input, dtype=torch.float)
+        # input_x.unsqueeze_(0)
 
-#         for i in range(len(predictions)):
-#             confidence, predicted = torch.max(
-#                 F.softmax(predictions[i], dim=1).data, 1)
-#             confidence, predicted = confidence.squeeze(), predicted.squeeze()
+        # XXX: define device automatically
+        mask = torch.ones(batch_input.size(), device='cuda')
+        predictions = self.model(
+            batch_input, mask)
 
-#             batch_target = batch_target.squeeze()
-#             confidence, predicted = confidence.squeeze(), predicted.squeeze()
+        for i in range(len(predictions)):
+            confidence, predicted = torch.max(
+                F.softmax(predictions[i], dim=1).data, 1)
+            confidence, predicted = confidence.squeeze(), predicted.squeeze()
 
-#             segment_bars_with_confidence(results_dir + '/{}_stage{}.png'.format(vid, i),
-#                                             confidence.tolist(),
-#                                             batch_target.tolist(), predicted.tolist())
+            batch_target = batch_target.squeeze()
+            confidence, predicted = confidence.squeeze(), predicted.squeeze()
 
-#         recognition = []
-#         for i in range(len(predicted)):
-#             recognition = np.concatenate((recognition, [list(actions_dict.keys())[
-#                 list(actions_dict.values()).index(
-#                     predicted[i].item())]] * sample_rate))
-#         f_name = vid.split('/')[-1].split('.')[0]
-#         f_ptr = open(results_dir + "/" + f_name, "w")
-#         f_ptr.write("### Frame level recognition: ###\n")
-#         f_ptr.write(' '.join(recognition))
-#         f_ptr.close()
+            segment_bars_with_confidence(f'{self.results_dir}/{vid}_stage{i}.png',
+                                         confidence.tolist(),
+                                         batch_target.tolist(), predicted.tolist())
 
-#         f_name = vid[0].split('/')[-1].split('.')[0]
-#         with open(f'{results_dir}/{f_name}.txt', "w+") as fw:
-#             for pred_action in recognition:
-#                 fw.write(f'{pred_action}\n')
+        recognition = []
+        for i in range(len(predicted)):
+            recognition = np.concatenate((recognition, [list(self.action_to_id.keys())[
+                list(self.action_to_id.values()).index(
+                    predicted[i].item())]] * self.sample_rate))
+        f_name = vid.split('/')[-1].split('.')[0]
+        f_ptr = open(f'{self.results_dir}/{f_name}', "w")
+        f_ptr.write("### Frame level recognition: ###\n")
+        f_ptr.write(' '.join(recognition))
+        f_ptr.close()
 
-
-# if __name__ == '__main__':
-#     from model import MyTransformer
-#     num_layers = 10
-#     num_f_maps = 64
-#     features_dim = 2048
-#     # bz = 1
-#     r1 = 2
-#     r2 = 2
-#     num_class = 6
-#     channel_mask_rate = 0.3
-#     torch_model = MyTransformer(
-#         3, num_layers, r1, r2, num_f_maps, features_dim, num_class, channel_mask_rate
-#     )
-
-#     lr_scheduler_config = {
-#         'name': 'ReduceLROnPlateau',
-#         'lr': 1e-3,
-#     }
-
-#     optimizer_config = {
-#         'name': 'Adadelta',
-#         'eps': 1e-7
-#     }
-
-#     loss_config = {
-#         'name': 'CrossEntropyLoss'
-#     }
-
-#     pl_model = BasePLModel(
-#         torch_model,
-#         optimizer_config,
-#         lr_scheduler_config,
-#         loss_config,
-#         num_class=num_class
-#     )
-#     pass
+        f_name = vid[0].split('/')[-1].split('.')[0]
+        with open(f'{self.results_dir}/{f_name}.txt', "w+") as fw:
+            for pred_action in recognition:
+                fw.write(f'{pred_action}\n')
+        return predictions, vid

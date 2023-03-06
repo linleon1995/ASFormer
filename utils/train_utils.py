@@ -1,9 +1,9 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
 
-
-
+            
 class ASFormerLoss():
     def __init__(self, num_class: int):
         self.num_class = num_class

@@ -10,6 +10,7 @@ import math
 from eval import segment_bars_with_confidence
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda")
 
 
 def exponential_descrease(idx_decoder, p=3):
@@ -188,6 +189,7 @@ class AttLayer(nn.Module):
         # 3. construct window mask of shape (1, l, 2l), and use it to generate final mask
         padding_mask = torch.cat([padding_mask[:, :, i*self.bl:(i+1)*self.bl+(self.bl//2)*2]
                                  for i in range(nb)], dim=0)  # of shape (m*nb, 1, 2l)
+        self.window_mask = self.window_mask.to(device)
         final_mask = self.window_mask.repeat(
             m_batchsize * nb, 1, 1) * padding_mask
 
